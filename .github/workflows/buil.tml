@@ -1,0 +1,31 @@
+name: Build plugin
+on: [workflow_dispatch, push]
+env:
+  SDK_URL: https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK411.zip
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux OpenGL headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev
+      - name: Download the X-Plane SDK
+        run: |
+          curl -L -o sdk.zip "$SDK_URL"
+          unzip -q sdk.zip -d sdk
+          echo "SDK_DIR=$(pwd)/sdk/SDK" >> "$GITHUB_ENV"
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DXPLANE_SDK="$SDK_DIR"
+          cmake --build build --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-${{ runner.os }}
+          path: build/b738_takeoff_perf
