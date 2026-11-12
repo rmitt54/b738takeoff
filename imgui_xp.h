@@ -11,7 +11,8 @@ namespace pfm {
 
 class XpImguiWindow {
 public:
-    XpImguiWindow(const char* title, int width, int height, std::function<void()> build);
+    // build() draws one frame of ImGui and returns true when the user asked to close the window.
+    XpImguiWindow(const char* title, int width, int height, std::function<bool()> build);
     ~XpImguiWindow();
     XpImguiWindow(const XpImguiWindow&) = delete;
     XpImguiWindow& operator=(const XpImguiWindow&) = delete;
@@ -34,10 +35,14 @@ private:
 
     XPLMWindowID win_ = nullptr;
     ImGuiContext* ctx_ = nullptr;
-    std::function<void()> build_;
+    std::function<bool()> build_;
     unsigned font_tex_ = 0;
     float last_time_ = 0;
     bool left_down_ = false;
+    // Moving or resizing the window by hand: 0 = no, 1 = moving, 2 = resizing.
+    int drag_mode_ = 0;
+    int drag_gx_ = 0, drag_gy_ = 0;
+    int drag_l_ = 0, drag_t_ = 0, drag_r_ = 0, drag_b_ = 0;
 };
 
 }  // namespace pfm

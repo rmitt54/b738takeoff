@@ -21,7 +21,7 @@ std::unique_ptr<pfm::XpImguiWindow> g_window;
 XPLMCommandRef g_cmd = nullptr;
 int g_menu_item = -1;
 
-XPLMDataRef g_oat = nullptr, g_qnh = nullptr, g_wspd = nullptr, g_wdir = nullptr;
+XPLMDataRef g_oat = nullptr, g_qnh = nullptr, g_wspd = nullptr, g_wdir = nullptr, g_magvar = nullptr;
 
 XPLMDataRef find_first(std::initializer_list<const char*> names) {
     for (const char* n : names)
@@ -56,6 +56,8 @@ pfm::SimWx read_weather() {
     }
     if (read_value(g_wspd, v)) w.wspd = std::max(0, pfm::rnd(v));
     if (read_value(g_wdir, v)) w.wdir = ((pfm::rnd(v) % 360) + 360) % 360;
+    // Magnetic variation at the aircraft, used for airports that are not in the built-in data.
+    if (read_value(g_magvar, v)) pfm::set_default_magvar(v);
     return w;
 }
 
@@ -63,7 +65,7 @@ void toggle_window() {
     if (!g_window) {
         g_window = std::make_unique<pfm::XpImguiWindow>("737-800 Takeoff Performance", 560, 960, [] {
             pfm::SimWx wx = read_weather();
-            pfm::ui_draw(g_state, &wx);
+            return pfm::ui_draw(g_state, &wx);
         });
     } else {
         g_window->set_visible(!g_window->visible());
@@ -105,6 +107,7 @@ PLUGIN_API int XPluginEnable(void) {
                         "sim/weather/region/sealevel_pressure_pas"});
     g_wspd = find_first({"sim/weather/aircraft/wind_speed_kts", "sim/weather/wind_speed_kt"});
     g_wdir = find_first({"sim/weather/aircraft/wind_direction_degt", "sim/weather/wind_direction_degt"});
+    g_magvar = find_first({"sim/flightmodel/position/magnetic_variation"});
     return 1;
 }
 

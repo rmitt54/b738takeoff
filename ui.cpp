@@ -178,7 +178,12 @@ struct Calc {
 
 Calc compute(const State& s) {
     Calc c;
-    double ang = (s.wdir - s.rwy_hdg) * 3.14159265358979323846 / 180.0;
+    // The runway heading is magnetic. Wind from the simulator is relative to true north, so add the
+    // magnetic variation (positive east) to get the true heading. Wind typed in by hand follows the
+    // ATIS, which is magnetic, so it is used as is.
+    double var = (s.apt && s.apt->has_magvar) ? s.apt->magvar : (has_default_magvar() ? default_magvar() : 0.0);
+    double hdg = s.rwy_hdg + (s.auto_wx ? var : 0.0);
+    double ang = (s.wdir - hdg) * 3.14159265358979323846 / 180.0;
     c.p.flaps = s.flaps; c.p.ai = s.ai; c.p.packs = s.packs; c.p.derate = s.derate; c.p.v1_max = s.v1_max;
     c.p.oat = s.oat; c.p.slope = s.slope10 / 10.0; c.p.wet = s.wet; c.p.tora = s.rwy_len;
     c.p.hw = s.wspd * std::cos(ang);
@@ -402,8 +407,7 @@ void draw_inputs(State& s) {
         if (s.apt) {
             std::vector<std::string> labels;
             for (const auto& e : s.apt->ends)
-                labels.push_back(fmt("%s   %d m / %d ft   %03d", e.id.c_str(), rnd(e.len), rnd(e.len * M2FT),
-                                     s.auto_wx ? e.tru : e.mag));
+                labels.push_back(fmt("%s   %d m / %d ft   %03d M", e.id.c_str(), rnd(e.len), rnd(e.len * M2FT), e.mag));
             const char* preview = s.sel >= 0 && s.sel < static_cast<int>(labels.size()) ? labels[s.sel].c_str() : "Select runway";
             form_row("Runway");
             fill_width();
@@ -423,7 +427,7 @@ void draw_inputs(State& s) {
             }
             if (s.sel >= 0) {
                 const RunwayEnd& e = s.apt->ends[s.sel];
-                s.rwy_hdg = s.auto_wx ? e.tru : e.mag;
+                s.rwy_hdg = e.mag;
             }
         }
         form_row("Elevation, ft");
@@ -432,7 +436,7 @@ void draw_inputs(State& s) {
         form_row("Runway available, m");
         fill_width();
         if (ImGui::InputInt("##rwylen", &s.rwy_len, 0, 0)) s.rwy_len = clampi(s.rwy_len, 0, 6000);
-        form_row("Runway heading");
+        form_row("Runway heading, mag");
         fill_width();
         if (ImGui::InputInt("##hdg", &s.rwy_hdg, 0, 0)) {
             s.rwy_hdg = ((s.rwy_hdg - 1) % 360 + 360) % 360 + 1;
@@ -553,7 +557,7 @@ void ui_init_style() {
     c[ImGuiCol_TableBorderLight] = C_LINE;
 }
 
-void ui_draw(State& s, const SimWx* wx) {
+bool ui_draw(State& s, const SimWx* wx) {
     if (s.auto_wx && wx) {
         if (wx->oat) s.oat = *wx->oat;
         if (wx->qnh_hpa) { s.qnh = *wx->qnh_hpa; s.altim = rnd(*wx->qnh_hpa / 33.8639 * 100); }
@@ -566,20 +570,58 @@ void ui_draw(State& s, const SimWx* wx) {
     ImGui::SetNextWindowPos(vp->Pos);
     ImGui::SetNextWindowSize(vp->Size);
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                             ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav;
-    if (ImGui::Begin("##b738perf", nullptr, flags)) {
+                             ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav |
+                             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+    bool close = false;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    bool open = ImGui::Begin("##b738perf", nullptr, flags);
+    ImGui::PopStyleVar();
+    if (open) {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImVec2 wp = ImGui::GetWindowPos();
+        float W = vp->Size.x, H = vp->Size.y;
+
+        // Header: title on the left (drag it to move the window), close button on the right.
+        ImGui::SetCursorPos(ImVec2(18, 10));
         if (g_title) ImGui::PushFont(g_title);
         ctext(C_TEXT, "737-800 Takeoff Performance");
         if (g_title) ImGui::PopFont();
+        ImGui::SetCursorPosX(18);
         small_text(C_MUTED, "CFM56-7B26  |  approximate model, not for real-world use");
-        ImGui::Dummy(ImVec2(0, 6));
+
+        const float bs = 30.0f;
+        ImVec2 b0(wp.x + W - bs - 14, wp.y + 12), b1(b0.x + bs, b0.y + bs);
+        bool hot = ImGui::IsMouseHoveringRect(b0, b1);
+        dl->AddRectFilled(b0, b1, u32(hot ? mix(C_FIELD, C_BAD, 0.55f) : C_FIELD), 9.0f);
+        ImVec2 mid((b0.x + b1.x) * 0.5f, (b0.y + b1.y) * 0.5f);
+        float k = 6.0f;
+        ImU32 xc = u32(hot ? C_TEXT : C_MUTED);
+        dl->AddLine(ImVec2(mid.x - k, mid.y - k), ImVec2(mid.x + k, mid.y + k), xc, 2.0f);
+        dl->AddLine(ImVec2(mid.x - k, mid.y + k), ImVec2(mid.x + k, mid.y - k), xc, 2.0f);
+        if (hot && ImGui::IsMouseClicked(0)) close = true;
+
+        dl->AddLine(ImVec2(wp.x, wp.y + kHeaderHeight), ImVec2(wp.x + W, wp.y + kHeaderHeight), u32(C_LINE), 1.0f);
+
+        // Body scrolls with the mouse wheel when the window is too small for everything.
+        ImGui::SetCursorPos(ImVec2(0, kHeaderHeight + 1));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+        ImGui::BeginChild("##body", ImVec2(0, 0), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_None);
         if (!c.has) draw_no_weight(s, c);
         else draw_results(s, c);
         ImGui::Dummy(ImVec2(0, 8));
         draw_inputs(s);
         ImGui::Dummy(ImVec2(0, 6));
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+
+        // Resize grip in the bottom-right corner.
+        ImVec2 g(wp.x + W - 6, wp.y + H - 6);
+        ImU32 gc = u32(C_MUTED);
+        for (int i = 1; i <= 3; ++i)
+            dl->AddLine(ImVec2(g.x - 5.0f * i, g.y), ImVec2(g.x, g.y - 5.0f * i), gc, 1.5f);
     }
     ImGui::End();
+    return close;
 }
 
 }  // namespace pfm

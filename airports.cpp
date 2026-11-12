@@ -23,6 +23,8 @@ constexpr double kPi = 3.14159265358979323846;
 namespace {
 
 std::string g_root;
+double g_def_var = 0;
+bool g_has_def_var = false;
 int g_searched = 0, g_opened = 0;
 std::map<std::string, Airport> g_cache;
 
@@ -43,7 +45,9 @@ int mag_heading(const std::string& id) {
 
 void sort_ends(std::vector<RunwayEnd>& e) {
     std::stable_sort(e.begin(), e.end(), [](const RunwayEnd& a, const RunwayEnd& b) {
-        if (a.mag != b.mag) return a.mag < b.mag;
+        // Order by runway number (06L, 06R, 24L, ...), not by the corrected magnetic heading.
+        int ha = mag_heading(a.id), hb = mag_heading(b.id);
+        if (ha != hb) return ha < hb;
         return a.id < b.id;
     });
 }
@@ -91,6 +95,14 @@ std::vector<std::string> split_ws(const std::string& line, int maxsplit) {
 }  // namespace
 
 void set_system_path(const std::string& path) { g_root = path; }
+void set_default_magvar(double v) { g_def_var = v; g_has_def_var = true; }
+bool has_default_magvar() { return g_has_def_var; }
+double default_magvar() { return g_def_var; }
+
+int mag_from_true(int true_heading, double magvar) {
+    int m = rnd(true_heading - magvar);
+    return ((m - 1) % 360 + 360) % 360 + 1;
+}
 int apt_files_searched() { return g_searched; }
 int apt_files_opened() { return g_opened; }
 
@@ -125,6 +137,14 @@ std::optional<Airport> db_lookup(const std::string& code) {
     apt.icao = parts[0]; apt.iata = parts[1];
     apt.elevFt = std::atoi(parts[2].c_str());
     apt.name = parts[3]; apt.city = parts[4]; apt.src = "built-in";
+    double var = 0;
+    if (parts.size() >= 8 && parse_num(parts[7], var)) {
+        apt.magvar = var;
+        apt.has_magvar = true;
+    } else if (g_has_def_var) {
+        apt.magvar = g_def_var;
+        apt.has_magvar = true;
+    }
     for (const auto& item : split(parts[6], ';')) {
         auto f = split(item, ',');
         if (f.size() < 7) continue;
@@ -136,8 +156,10 @@ std::optional<Airport> db_lookup(const std::string& code) {
         RunwayEnd a, b;
         a.id = f[0]; a.len = ln; a.mag = mag_heading(a.id);
         a.tru = g1 ? static_cast<int>(t1) : a.mag; a.slope = sl;
+        if (g1 && apt.has_magvar) a.mag = mag_from_true(a.tru, apt.magvar);
         b.id = f[1]; b.len = ln; b.mag = mag_heading(b.id);
         b.tru = g2 ? static_cast<int>(t2) : b.mag; b.slope = -sl;
+        if (g2 && apt.has_magvar) b.mag = mag_from_true(b.tru, apt.magvar);
         apt.ends.push_back(a);
         apt.ends.push_back(b);
     }
@@ -168,6 +190,7 @@ std::optional<Airport> read_apt_dat(const std::string& path, const std::string& 
                     a.name = t.size() > 5 ? t[5] : "";
                     a.elevFt = static_cast<int>(std::atof(t[1].c_str()));
                     a.src = "X-Plane scenery";
+                    if (g_has_def_var) { a.magvar = g_def_var; a.has_magvar = true; }
                     apt = a;
                 }
             }
@@ -187,6 +210,10 @@ std::optional<Airport> read_apt_dat(const std::string& path, const std::string& 
             RunwayEnd a, b;
             a.id = t[8]; a.len = ln; a.tru = rnd(brg); a.mag = mag_heading(a.id);
             b.id = t[17]; b.len = ln; b.tru = rnd(std::fmod(brg + 180.0, 360.0)); b.mag = mag_heading(b.id);
+            if (apt->has_magvar) {
+                a.mag = mag_from_true(a.tru, apt->magvar);
+                b.mag = mag_from_true(b.tru, apt->magvar);
+            }
             apt->ends.push_back(a);
             apt->ends.push_back(b);
         }

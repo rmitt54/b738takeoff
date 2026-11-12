@@ -1,5 +1,6 @@
 #include "imgui_xp.h"
 
+#include <algorithm>
 #include <cfloat>
 #include <cstddef>
 #include <cstdint>
@@ -7,7 +8,6 @@
 #include "XPLMGraphics.h"
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
-
 #include "imgui.h"
 #include "ui.h"
 
@@ -55,7 +55,7 @@ ImGuiKey map_vkey(unsigned char vk) {
 
 }  // namespace
 
-XpImguiWindow::XpImguiWindow(const char* title, int width, int height, std::function<void()> build)
+XpImguiWindow::XpImguiWindow(const char* title, int width, int height, std::function<bool()> build)
     : build_(std::move(build)) {
     ctx_ = ImGui::CreateContext();
     ImGui::SetCurrentContext(ctx_);
@@ -78,11 +78,12 @@ XpImguiWindow::XpImguiWindow(const char* title, int width, int height, std::func
     p.handleCursorFunc = cursor_cb;
     p.handleMouseWheelFunc = wheel_cb;
     p.refcon = this;
-    p.decorateAsFloatingWindow = xplm_WindowDecorationSelfDecoratedResizable;
+    // The window draws its own title bar, close button and resize grip (see ui.cpp).
+    p.decorateAsFloatingWindow = xplm_WindowDecorationSelfDecorated;
     p.layer = xplm_WindowLayerFloatingWindows;
     win_ = XPLMCreateWindowEx(&p);
     XPLMSetWindowTitle(win_, title);
-    XPLMSetWindowResizingLimits(win_, 440, 520, 1400, 2000);
+    XPLMSetWindowResizingLimits(win_, 460, 520, 1400, 2000);
     last_time_ = XPLMGetElapsedTime();
 }
 
@@ -135,9 +136,14 @@ void XpImguiWindow::draw() {
     else io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
 
     ImGui::NewFrame();
-    if (build_) build_();
+    bool close = build_ ? build_() : false;
     ImGui::Render();
     render(l, t);
+    if (close) {
+        if (XPLMHasKeyboardFocus(win_)) XPLMTakeKeyboardFocus(nullptr);
+        XPLMSetWindowIsVisible(win_, 0);
+        return;
+    }
 
     // Take the keyboard only while a text box is active, and give it back afterwards.
     if (io.WantTextInput) {
@@ -204,6 +210,39 @@ void XpImguiWindow::mouse_event(int x, int y, XPLMMouseStatus status, int button
     ImGuiIO& io = ImGui::GetIO();
     int l, t, r, b;
     XPLMGetWindowGeometry(win_, &l, &t, &r, &b);
+
+    // Dragging the header moves the window; dragging the bottom-right grip resizes it.
+    if (button == 0) {
+        if (status == xplm_MouseDown) {
+            float lx = static_cast<float>(x - l), ly = static_cast<float>(t - y);
+            float w = static_cast<float>(r - l), h = static_cast<float>(t - b);
+            drag_mode_ = 0;
+            if (lx >= w - kGripSize && ly >= h - kGripSize) drag_mode_ = 2;
+            else if (ly < kHeaderHeight && lx < w - kCloseZoneWidth) drag_mode_ = 1;
+            if (drag_mode_) {
+                drag_gx_ = x; drag_gy_ = y;
+                drag_l_ = l; drag_t_ = t; drag_r_ = r; drag_b_ = b;
+                left_down_ = true;
+                return;
+            }
+        } else if (drag_mode_) {
+            if (status == xplm_MouseDrag) {
+                int dx = x - drag_gx_, dy = y - drag_gy_;
+                if (drag_mode_ == 1) {
+                    XPLMSetWindowGeometry(win_, drag_l_ + dx, drag_t_ + dy, drag_r_ + dx, drag_b_ + dy);
+                } else {
+                    int nr = std::max(drag_r_ + dx, drag_l_ + 460);
+                    int nb = std::min(drag_b_ + dy, drag_t_ - 360);
+                    XPLMSetWindowGeometry(win_, drag_l_, drag_t_, nr, nb);
+                }
+            } else if (status == xplm_MouseUp) {
+                drag_mode_ = 0;
+                left_down_ = false;
+            }
+            return;
+        }
+    }
+
     io.AddMousePosEvent(static_cast<float>(x - l), static_cast<float>(t - y));
     if (status == xplm_MouseDown) io.AddMouseButtonEvent(button, true);
     else if (status == xplm_MouseUp) io.AddMouseButtonEvent(button, false);

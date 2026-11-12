@@ -47,7 +47,14 @@ struct State {
 
 // Call once after ImGui::CreateContext(). Sets the theme and loads the two fonts.
 void ui_init_style();
+// Window chrome shared with the X-Plane window code: a header you can drag, a close button in its
+// right end, and a grip in the bottom-right corner for resizing. Sizes are in pixels.
+constexpr float kHeaderHeight = 58.0f;
+constexpr float kCloseZoneWidth = 60.0f;
+constexpr float kGripSize = 26.0f;
+
 // Call every frame between ImGui::NewFrame() and ImGui::Render().
-void ui_draw(State& s, const SimWx* wx);
+// Returns true when the close button was clicked.
+bool ui_draw(State& s, const SimWx* wx);
 
 }  // namespace pfm
