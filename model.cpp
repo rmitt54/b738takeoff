@@ -80,6 +80,7 @@ Result model(const Params& p, double W, std::optional<double> T) {
     Result r;
     r.V1 = V1; r.VR = VR; r.V2 = V2; r.vmcg = vmcg;
     r.todr = todr; r.margin = margin; r.tf = tf; r.tfRel = tf / tf_full;
+    r.n1 = 98.7 * std::sqrt((p.oat + 273.15) / 287.15) * std::pow(r.tfRel, 1.0 / 3.0);
     r.v1floor = floor_hit; r.gs = vtas - p.hw;
     r.fieldOk = margin >= 1; r.climbNet = climb_net; r.climbOk = climb_ok;
     r.ok = r.fieldOk && climb_ok;

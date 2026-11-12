@@ -265,6 +265,8 @@ void draw_results(const State& s, const Calc& c) {
     ImGui::SameLine(0, 8);
     pill(fmt("%d%% THRUST", pct), C_MUTED);
     ImGui::SameLine(0, 8);
+    pill(fmt("N1 %.1f", r.n1), C_MUTED);
+    ImGui::SameLine(0, 8);
     if (W > MTOW) pill("OVER MTOW", C_BAD);
     else if (!r.fieldOk) pill("RUNWAY LIMITED", C_BAD);
     else if (!r.climbOk) pill("CLIMB LIMITED", C_BAD);

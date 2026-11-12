@@ -30,7 +30,7 @@ struct Params {
 
 struct Result {
     int V1 = 0, VR = 0, V2 = 0, vmcg = 0;
-    double todr = 0, margin = 0, tf = 0, tfRel = 0;
+    double todr = 0, margin = 0, tf = 0, tfRel = 0, n1 = 0;
     bool v1floor = false;
     double gs = 0;
     bool fieldOk = false;
