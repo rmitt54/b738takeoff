@@ -61,7 +61,7 @@ pfm::SimWx read_weather() {
 
 void toggle_window() {
     if (!g_window) {
-        g_window = std::make_unique<pfm::XpImguiWindow>("737-800 Takeoff Performance", 520, 900, [] {
+        g_window = std::make_unique<pfm::XpImguiWindow>("737-800 Takeoff Performance", 560, 960, [] {
             pfm::SimWx wx = read_weather();
             pfm::ui_draw(g_state, &wx);
         });

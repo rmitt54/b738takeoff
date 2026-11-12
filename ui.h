@@ -19,6 +19,7 @@ struct State {
     char weight_txt[12] = "";
     int flaps = 5;
     bool ai = false;
+    bool packs = false;   // air conditioning packs on
     // Thrust
     int derate = 0;
     bool flex_mode = true;

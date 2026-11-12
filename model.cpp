@@ -11,6 +11,9 @@ constexpr double TAIR = 11.0;
 constexpr double SLOPE = 0.0085;
 constexpr double MAX_REDUCTION = 0.25;
 constexpr int MAX_ASSUMED = 70;
+constexpr double PACKS_LOSS = 0.005;  // thrust lost with packs on; an estimate
+
+double bleed_loss(const Params& p) { return (p.ai ? 0.015 : 0.0) + (p.packs ? PACKS_LOSS : 0.0); }
 
 double kv2(int f) { return f == 1 ? 18.4 : (f == 15 ? 17.5 : 17.78); }
 double flapf(int f) { return f == 1 ? 1.07 : (f == 15 ? 0.967 : 1.0); }
@@ -40,7 +43,7 @@ Result model(const Params& p, double W, std::optional<double> T) {
     int V2 = rnd(kv2(p.flaps) * std::sqrt(tw));
     int gap = p.flaps == 15 ? 8 : rnd(clamp(3 + 3 * (79.016 - tw) / 34, 3, 6));
     int VR = V2 - gap;
-    double ai_loss = p.ai ? 0.015 : 0.0;
+    double ai_loss = bleed_loss(p);
     double t_use = T ? *T : p.oat;
     double tf = clamp(derate_factor(p.derate) - SLOPE * std::max(0.0, t_use - a.tref) - ai_loss, 0.5, 1);
     double tf_full = clamp(1 - SLOPE * std::max(0.0, p.oat - a.tref) - ai_loss, 0.5, 1);
@@ -85,7 +88,7 @@ Result model(const Params& p, double W, std::optional<double> T) {
 
 void flex_range(const Params& p, int& lo, int& hi) {
     lo = static_cast<int>(std::ceil(std::max(p.oat, p.atm.tref)));
-    double room = derate_factor(p.derate) - (1 - MAX_REDUCTION) - (p.ai ? 0.015 : 0.0);
+    double room = derate_factor(p.derate) - (1 - MAX_REDUCTION) - bleed_loss(p);
     hi = static_cast<int>(std::floor(std::min<double>(MAX_ASSUMED, p.atm.tref + room / SLOPE)));
 }
 

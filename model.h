@@ -16,6 +16,7 @@ struct Atmo { double pa, delta, sigma, tref; };
 struct Params {
     int flaps = 5;           // 1, 5 or 15
     bool ai = false;         // engine anti-ice
+    bool packs = false;      // air conditioning packs on (off matches the calibration data)
     int derate = 0;          // 0 = 26K, 1 = 24K, 2 = 22K
     bool v1_max = false;     // false = balanced field, true = maximum (stop limited)
     double oat = 15;         // C
