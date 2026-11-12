@@ -110,6 +110,8 @@ void XpImguiWindow::upload_fonts() {
     int id = 0;
     XPLMGenerateTextureNumbers(&id, 1);
     XPLMBindTexture2d(id, 0);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
@@ -174,9 +176,25 @@ void XpImguiWindow::render(int left, int top) {
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
     glEnableClientState(GL_COLOR_ARRAY);
 
+    // Other plugins may leave their own matrices behind. Never trust the incoming
+    // state: set up our own projection (main window only; popped-out/VR windows get
+    // theirs from X-Plane), a clean texture matrix, and a clean modelview.
+    const bool own_projection = win_ && !XPLMWindowIsPoppedOut(win_) && !XPLMWindowIsInVR(win_) && sw > 0 && sh > 0;
+    if (own_projection) {
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+        glOrtho(0.0, sw, 0.0, sh, -1.0, 1.0);
+    }
+    glMatrixMode(GL_TEXTURE);
+    glPushMatrix();
+    glLoadIdentity();
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+
     // ImGui has y pointing down from the window's top-left; X-Plane has y pointing up.
     glMatrixMode(GL_MODELVIEW);
     glPushMatrix();
+    glLoadIdentity();
     glTranslatef(static_cast<float>(left), static_cast<float>(top), 0.0f);
     glScalef(1.0f, -1.0f, 1.0f);
 
@@ -200,7 +218,14 @@ void XpImguiWindow::render(int left, int top) {
         }
     }
 
+    glMatrixMode(GL_MODELVIEW);
     glPopMatrix();
+    glMatrixMode(GL_TEXTURE);
+    glPopMatrix();
+    if (own_projection) {
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+    }
     glPopClientAttrib();
     glPopAttrib();
 }
