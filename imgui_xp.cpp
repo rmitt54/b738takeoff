@@ -5,7 +5,9 @@
 #include <cstdint>
 
 #include "XPLMGraphics.h"
+#include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
+
 #include "imgui.h"
 #include "ui.h"
 
