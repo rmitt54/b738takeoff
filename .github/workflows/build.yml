@@ -1,10 +1,9 @@
 name: Build plugin
 on: [workflow_dispatch, push]
-env:
-  SDK_URL: https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK411.zip
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
@@ -13,14 +12,33 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+      - name: Put files in the right folders
+        run: |
+          if [ ! -d src ]; then
+            mkdir -p src third_party/imgui
+            mv airportdb_data.cpp airports.cpp airports.h imgui_xp.cpp imgui_xp.h model.cpp model.h plugin.cpp ui.cpp ui.h src/
+            mv imconfig.h imgui.cpp imgui.h imgui_draw.cpp imgui_internal.h imgui_tables.cpp imgui_widgets.cpp imstb_rectpack.h imstb_textedit.h imstb_truetype.h third_party/imgui/
+            rm -f XPLM*.h gl.h
+          fi
+          ls
       - name: Install Linux OpenGL headers
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev
       - name: Download the X-Plane SDK
         run: |
-          curl -L -o sdk.zip "$SDK_URL"
-          unzip -q sdk.zip -d sdk
-          echo "SDK_DIR=$(pwd)/sdk/SDK" >> "$GITHUB_ENV"
+          for v in XPSDK411 XPSDK410 XPSDK400 XPSDK303; do
+            echo "Trying $v"
+            if curl -fL -o sdk.zip "https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/$v.zip" && unzip -q -o sdk.zip -d sdk; then
+              break
+            fi
+            rm -rf sdk sdk.zip
+          done
+          CH=$(find sdk -type d -name CHeaders -print -quit)
+          if [ -z "$CH" ]; then echo "Could not download the X-Plane SDK"; exit 1; fi
+          SDKP=$(cd "$(dirname "$CH")" && pwd)
+          if command -v cygpath >/dev/null 2>&1; then SDKP=$(cygpath -m "$SDKP"); fi
+          echo "SDK folder: $SDKP"
+          echo "SDK_DIR=$SDKP" >> "$GITHUB_ENV"
       - name: Configure and build
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DXPLANE_SDK="$SDK_DIR"
