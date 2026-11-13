@@ -15,6 +15,7 @@ struct SimWx {
 
 struct State {
     // Aircraft
+    int variant = 1;                     // 0 = 737-700, 1 = 737-800, 2 = 737-900, 3 = 737-900ER
     std::optional<int> weight;           // empty field = no weight yet
     char weight_txt[12] = "";
     int flaps = 5;

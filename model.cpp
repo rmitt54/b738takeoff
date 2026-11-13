@@ -18,14 +18,28 @@ double bleed_loss(const Params& p) { return (p.ai ? 0.015 : 0.0) + (p.packs ? PA
 double kv2(int f) { return f == 1 ? 18.4 : (f == 15 ? 17.5 : 17.78); }
 double flapf(int f) { return f == 1 ? 1.07 : (f == 15 ? 0.967 : 1.0); }
 double ldr(int f) { return f == 1 ? 12.8 : (f == 15 ? 11.0 : 12.2); }
-double derate_factor(int d) { return d == 1 ? 24.0 / 26.3 : (d == 2 ? 22.0 / 26.3 : 1.0); }
+const Variant kVariants[NUM_VARIANTS] = {
+    {"737-700", "CFM56-7B26", 70080.0, 26.3, "26K"},
+    {"737-800", "CFM56-7B26", 79016.0, 26.3, "26K"},
+    {"737-900", "CFM56-7B26", 79016.0, 26.3, "26K"},
+    {"737-900ER", "CFM56-7B27", 85130.0, 27.3, "27K"},
+};
+const Variant& var(const Params& p) { return kVariants[p.variant < 0 || p.variant >= NUM_VARIANTS ? 1 : p.variant]; }
+double tscale(const Params& p) { return var(p).full_k / 26.3; }  // thrust relative to the calibration engine
+double derate_factor(const Params& p) {
+    double k = p.derate == 1 ? 24.0 : (p.derate == 2 ? 22.0 : var(p).full_k);
+    return k / var(p).full_k;
+}
 }  // namespace
+
+const Variant& variant_info(int v) { return kVariants[v < 0 || v >= NUM_VARIANTS ? 1 : v]; }
+double mtow_of(int v) { return variant_info(v).mtow; }
 
 double clamp(double x, double a, double b) { return std::min(b, std::max(a, x)); }
 
 const char* derate_name(int d) { return d == 1 ? "TO 1" : (d == 2 ? "TO 2" : "TO"); }
 const char* derate_flex_name(int d) { return d == 1 ? "D-TO 1" : (d == 2 ? "D-TO 2" : "D-TO"); }
-const char* derate_k(int d) { return d == 1 ? "24K" : (d == 2 ? "22K" : "26K"); }
+const char* derate_k(int v, int d) { return d == 1 ? "24K" : (d == 2 ? "22K" : variant_info(v).label); }
 
 Atmo atmo(double elev_ft, double qnh, double oat) {
     Atmo a;
@@ -45,29 +59,29 @@ Result model(const Params& p, double W, std::optional<double> T) {
     int VR = V2 - gap;
     double ai_loss = bleed_loss(p);
     double t_use = T ? *T : p.oat;
-    double tf = clamp(derate_factor(p.derate) - SLOPE * std::max(0.0, t_use - a.tref) - ai_loss, 0.5, 1);
+    double tf = clamp(derate_factor(p) - SLOPE * std::max(0.0, t_use - a.tref) - ai_loss, 0.5, 1);
     double tf_full = clamp(1 - SLOPE * std::max(0.0, p.oat - a.tref) - ai_loss, 0.5, 1);
     double vtas = VR / std::sqrt(a.sigma);
     double weff = p.hw >= 0 ? 0.5 * p.hw : 1.5 * p.hw;
     double wind_f = std::pow(clamp((vtas - weff) / vtas, 0.6, 1.6), 2);
-    double dbase = 2350 * DIST_K * std::pow(W / MTOW, 1.9);
+    double dbase = 2350 * DIST_K * std::pow(W / MTOW, 1.9) / tscale(p);
     double todr = dbase * std::pow(a.sigma, -1.2) / tf * flapf(p.flaps) *
                   clamp(1 + 0.07 * p.slope, 0.7, 1.5) * wind_f * (p.wet ? 1.07 : 1.0);
     double margin = p.tora / todr;
     // One engine out, second segment: gear up, takeoff flaps, V2.
-    double thrust_lb = 26300 * 0.82 * std::pow(a.delta, 0.85) * tf;
+    double thrust_lb = 26300 * tscale(p) * 0.82 * std::pow(a.delta, 0.85) * tf;
     double climb_net = (thrust_lb / (W * KG2LB) - 1 / ldr(p.flaps) - 0.008) * 100;
     bool climb_ok = climb_net >= 2.4;
-    int vmcg = rnd(85 + 23 * tf * std::sqrt(a.sigma));
+    int vmcg = rnd(85 + 23 * tscale(p) * tf * std::sqrt(a.sigma));
     // V1 is the highest speed from which a rejected takeoff still stops on the runway.
-    double accel = std::max(0.3, 2 * 117000 * 0.88 * tf * std::pow(a.delta, 0.85) / W - 0.4 - 9.81 * p.slope / 100);
+    double accel = std::max(0.3, 2 * 117000 * tscale(p) * 0.88 * tf * std::pow(a.delta, 0.85) / W - 0.4 - 9.81 * p.slope / 100);
     double decel = p.wet ? 2.6 : 3.6;
     double kk = 1 / (2 * accel) + 1 / (2 * decel);
     double vg_stop = (-2 + std::sqrt(4 + 4 * kk * p.tora)) / (2 * kk);
     double v1_stop = (vg_stop * 1.94384 + weff) * std::sqrt(a.sigma);
     // Balanced field V1.
     double vrg = std::max(10.0, vtas - weff) * 0.51444;
-    double oei = std::max(0.3, 117000 * 0.88 * tf * std::pow(a.delta, 0.85) / W - 0.6 - 9.81 * p.slope / 100);
+    double oei = std::max(0.3, 117000 * tscale(p) * 0.88 * tf * std::pow(a.delta, 0.85) / W - 0.6 - 9.81 * p.slope / 100);
     double c2 = 1 / (2 * decel) + 1 / (2 * oei);
     double c0 = vrg * vrg / (2 * oei) + vrg * TAIR;
     double vg_bal = (-2 + std::sqrt(4 + 4 * c2 * c0)) / (2 * c2);
@@ -89,7 +103,7 @@ Result model(const Params& p, double W, std::optional<double> T) {
 
 void flex_range(const Params& p, int& lo, int& hi) {
     lo = static_cast<int>(std::ceil(std::max(p.oat, p.atm.tref)));
-    double room = derate_factor(p.derate) - (1 - MAX_REDUCTION) - bleed_loss(p);
+    double room = derate_factor(p) - (1 - MAX_REDUCTION) - bleed_loss(p);
     hi = static_cast<int>(std::floor(std::min<double>(MAX_ASSUMED, p.atm.tref + room / SLOPE)));
 }
 
@@ -101,8 +115,8 @@ std::optional<int> find_max_flex(const Params& p, double W, int lo, int hi) {
 
 namespace {
 template <class Pred>
-double bisect(Pred ok) {
-    double a = 35000.0, b = MTOW;
+double bisect(Pred ok, double mtow) {
+    double a = 35000.0, b = mtow;
     for (int i = 0; i < 30; ++i) {
         double m = (a + b) / 2;
         if (ok(m)) a = m; else b = m;
@@ -113,16 +127,18 @@ double bisect(Pred ok) {
 
 std::optional<double> limit_w(const Params& p, std::optional<double> T, bool climb_check) {
     auto ok = [&](double w) { Result r = model(p, w, T); return climb_check ? r.climbOk : r.fieldOk; };
-    if (ok(MTOW)) return std::nullopt;
+    double mt = mtow_of(p.variant);
+    if (ok(mt)) return std::nullopt;
     if (!ok(35000)) return 0.0;
-    return bisect(ok);
+    return bisect(ok, mt);
 }
 
 std::optional<double> limit_w_both(const Params& p, std::optional<double> T) {
     auto ok = [&](double w) { return model(p, w, T).ok; };
-    if (ok(MTOW)) return MTOW;
+    double mt = mtow_of(p.variant);
+    if (ok(mt)) return mt;
     if (!ok(35000)) return std::nullopt;
-    return bisect(ok);
+    return bisect(ok, mt);
 }
 
 }  // namespace pfm

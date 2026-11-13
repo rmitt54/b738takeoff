@@ -184,7 +184,7 @@ Calc compute(const State& s) {
     double var = (s.apt && s.apt->has_magvar) ? s.apt->magvar : (has_default_magvar() ? default_magvar() : 0.0);
     double hdg = s.rwy_hdg + (s.auto_wx ? var : 0.0);
     double ang = (s.wdir - hdg) * 3.14159265358979323846 / 180.0;
-    c.p.flaps = s.flaps; c.p.ai = s.ai; c.p.packs = s.packs; c.p.derate = s.derate; c.p.v1_max = s.v1_max;
+    c.p.variant = s.variant; c.p.flaps = s.flaps; c.p.ai = s.ai; c.p.packs = s.packs; c.p.derate = s.derate; c.p.v1_max = s.v1_max;
     c.p.oat = s.oat; c.p.slope = s.slope10 / 10.0; c.p.wet = s.wet; c.p.tora = s.rwy_len;
     c.p.hw = s.wspd * std::cos(ang);
     c.p.xw = s.wspd * std::sin(ang);
@@ -257,17 +257,15 @@ void draw_results(const State& s, const Calc& c) {
     const Params& p = c.p;
     const Result& r = c.r;
     double W = *c.W;
-    bool show = W <= MTOW && r.ok;
-    int pct = rnd(r.tfRel * 100);
+    const double mtow = mtow_of(s.variant);
+    bool show = W <= mtow && r.ok;
 
     if (c.T) pill(fmt("%s  %d C", derate_flex_name(s.derate), rnd(*c.T)), C_ACCENT);
-    else pill(fmt("%s  %s", derate_name(s.derate), derate_k(s.derate)), C_ACCENT);
+    else pill(fmt("%s  %s", derate_name(s.derate), derate_k(s.variant, s.derate)), C_ACCENT);
     ImGui::SameLine(0, 8);
-    pill(fmt("%d%% THRUST", pct), C_MUTED);
+    pill(fmt("N1 %.1f%%", r.n1), C_MUTED);
     ImGui::SameLine(0, 8);
-    pill(fmt("N1 %.1f", r.n1), C_MUTED);
-    ImGui::SameLine(0, 8);
-    if (W > MTOW) pill("OVER MTOW", C_BAD);
+    if (W > mtow) pill("OVER MTOW", C_BAD);
     else if (!r.fieldOk) pill("RUNWAY LIMITED", C_BAD);
     else if (!r.climbOk) pill("CLIMB LIMITED", C_BAD);
     else pill("READY", C_GOOD);
@@ -286,7 +284,7 @@ void draw_results(const State& s, const Calc& c) {
 
     if (!show) {
         ImGui::Spacing();
-        if (W > MTOW) {
+        if (W > mtow) {
             wrapped(C_BAD, "Weight is above the maximum takeoff weight.");
         } else {
             auto mt = limit_w_both(p, c.T);
@@ -364,6 +362,21 @@ void draw_inputs(State& s) {
         form_row("");
         if (!s.weight) wrapped(C_MUTED, "Leave empty to see weight limits only.", true);
         else wrapped(C_MUTED, fmt("= %d lb", rnd(*s.weight * KG2LB)), true);
+        form_row("Variant");
+        fill_width();
+        if (ImGui::BeginCombo("##variant", variant_info(s.variant).name)) {
+            for (int i = 0; i < NUM_VARIANTS; ++i) {
+                const Variant& vi = variant_info(i);
+                if (ImGui::Selectable(fmt("%s   max %d kg   %s", vi.name, rnd(vi.mtow), vi.engine).c_str(), s.variant == i)) {
+                    s.variant = i;
+                    if (s.weight && *s.weight > rnd(vi.mtow)) {
+                        s.weight.reset();
+                        s.weight_txt[0] = 0;
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
         form_row("Flaps");
         segmented<int>("flaps", {{1, "  1  "}, {5, "  5  "}, {15, "  15  "}}, s.flaps);
         form_row("Anti-ice");
@@ -379,8 +392,8 @@ void draw_inputs(State& s) {
 
     if (section("Thrust") && form_begin("##thrust")) {
         form_row("Rating");
-        std::string t0 = fmt("%s  %s", derate_name(0), derate_k(0)), t1 = fmt("%s  %s", derate_name(1), derate_k(1)),
-                    t2 = fmt("%s  %s", derate_name(2), derate_k(2));
+        std::string t0 = fmt("%s  %s", derate_name(0), derate_k(s.variant, 0)), t1 = fmt("%s  %s", derate_name(1), derate_k(s.variant, 1)),
+                    t2 = fmt("%s  %s", derate_name(2), derate_k(s.variant, 2));
         segmented<int>("derate", {{0, t0.c_str()}, {1, t1.c_str()}, {2, t2.c_str()}}, s.derate);
         form_row("Takeoff thrust");
         int flex = s.flex_mode ? 1 : 0;
@@ -586,10 +599,10 @@ bool ui_draw(State& s, const SimWx* wx) {
         // Header: title on the left (drag it to move the window), close button on the right.
         ImGui::SetCursorPos(ImVec2(18, 10));
         if (g_title) ImGui::PushFont(g_title);
-        ctext(C_TEXT, "737-800 Takeoff Performance");
+        ctext(C_TEXT, fmt("%s Takeoff Performance", variant_info(s.variant).name).c_str());
         if (g_title) ImGui::PopFont();
         ImGui::SetCursorPosX(18);
-        small_text(C_MUTED, "CFM56-7B26  |  approximate model, not for real-world use");
+        small_text(C_MUTED, fmt("%s  |  approximate model, not for real-world use", variant_info(s.variant).engine));
 
         const float bs = 30.0f;
         ImVec2 b0(wp.x + W - bs - 14, wp.y + 12), b1(b0.x + bs, b0.y + bs);
